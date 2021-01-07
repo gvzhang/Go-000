@@ -42,7 +42,7 @@ func (s *SlidingWindow) Grant() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	iSlot := int(math.Ceil(float64(d / s.interval)))
+	iSlot := int(math.Floor(float64(d / s.interval)))
 	if iSlot >= s.ciSlot+2 {
 		for k, _ := range s.bucket {
 			s.bucket[k] = 0
@@ -50,7 +50,7 @@ func (s *SlidingWindow) Grant() bool {
 		s.ciSlot = iSlot
 	}
 	p := int(d % s.interval)
-	nSlot := int(math.Ceil(float64(p * s.number / int(s.interval))))
+	nSlot := int(math.Floor(float64(p*s.number) / float64(s.interval)))
 	if nSlot != s.cnSlot {
 		s.bucket[nSlot] = 0
 		s.cnSlot = nSlot

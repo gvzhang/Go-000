@@ -28,11 +28,11 @@ func TestRolling(t *testing.T) {
 	s := NewSlidingWindow(time.Now(), 5*time.Second, 5, 10)
 
 	var runCnt int32
-	for i := 1; i <= 10; i++ {
-		if i == 5 {
+	for i := 0; i < 10; i++ {
+		if i == 4 {
 			runCnt += parallelRun(s, 3)
 		}
-		if i >= 8 {
+		if i >= 7 {
 			runCnt += parallelRun(s, 1)
 		}
 		time.Sleep(1 * time.Second)
@@ -52,8 +52,8 @@ func TestOverload(t *testing.T) {
 	s := NewSlidingWindow(time.Now(), 5*time.Second, 5, 5)
 
 	var runCnt int32
-	for i := 1; i <= 10; i++ {
-		if i == 5 || i == 6 {
+	for i := 0; i < 10; i++ {
+		if i == 4 || i == 5 {
 			runCnt += parallelRun(s, 3)
 		}
 		time.Sleep(1 * time.Second)
@@ -73,11 +73,11 @@ func TestSeparateSlot(t *testing.T) {
 	s := NewSlidingWindow(time.Now(), 5*time.Second, 5, 5)
 
 	var runCnt int32
-	for i := 1; i <= 15; i++ {
-		if i == 3 {
+	for i := 0; i < 15; i++ {
+		if i == 2 {
 			runCnt += parallelRun(s, 3)
 		}
-		if i == 13 {
+		if i == 12 {
 			runCnt += parallelRun(s, 3)
 		}
 		time.Sleep(1 * time.Second)
@@ -88,6 +88,30 @@ func TestSeparateSlot(t *testing.T) {
 		t.Fatalf("error runCnt %d", runCnt)
 	}
 	expectBucket := []int{0, 0, 3, 0, 0}
+	if CompareSlice(s.GetBucket(), expectBucket) == false {
+		t.Fatalf("error Bucket %v\n", s.GetBucket())
+	}
+}
+
+func TestRolling2(t *testing.T) {
+	s := NewSlidingWindow(time.Now(), 10*time.Second, 4, 10)
+
+	var runCnt int32
+	for i := 0; i < 10; i++ {
+		if i == 4 {
+			runCnt += parallelRun(s, 3)
+		}
+		if i >= 7 {
+			runCnt += parallelRun(s, 1)
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	t.Logf("runCnt %d", runCnt)
+	if runCnt != 6 {
+		t.Fatalf("error runCnt %d", runCnt)
+	}
+	expectBucket := []int{0, 3, 1, 2}
 	if CompareSlice(s.GetBucket(), expectBucket) == false {
 		t.Fatalf("error Bucket %v\n", s.GetBucket())
 	}
