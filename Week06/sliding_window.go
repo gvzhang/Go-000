@@ -37,20 +37,27 @@ func (s *SlidingWindow) sumBucket() int {
 	return sum
 }
 
+// 没有做好设计就去实现，见步行步的实现方法不可取。
+// 最终陷入坑中，纠结各个伪问题浪费时间。
 func (s *SlidingWindow) Grant() bool {
 	d := time.Now().Sub(s.msTime)
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
+	p := int(d % s.interval)
+	nSlot := int(math.Floor(float64(p*s.number) / float64(s.interval)))
+
 	iSlot := int(math.Floor(float64(d / s.interval)))
-	if iSlot >= s.ciSlot+2 {
+	if iSlot >= s.ciSlot+1 {
 		for k, _ := range s.bucket {
+			if iSlot == s.ciSlot+1 && k > nSlot {
+				continue
+			}
 			s.bucket[k] = 0
 		}
 		s.ciSlot = iSlot
 	}
-	p := int(d % s.interval)
-	nSlot := int(math.Floor(float64(p*s.number) / float64(s.interval)))
+
 	if nSlot != s.cnSlot {
 		s.bucket[nSlot] = 0
 		s.cnSlot = nSlot
