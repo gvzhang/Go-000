@@ -9,12 +9,29 @@ import (
 	"syscall"
 )
 
+type BizHandler struct {
+}
+
+func (bh *BizHandler) OnConnect(c net.Conn) {
+	log.Printf("OnConnect %+v\n", c)
+}
+
+func (bh *BizHandler) OnMessage(c net.Conn, bytes []byte) {
+	log.Printf("OnMessage %+v %s\n", c, string(bytes))
+}
+
+func (bh *BizHandler) OnClose(c net.Conn, err error) {
+	log.Printf("OnClose %+v %+v\n", c, err)
+}
+
 func main() {
 	errChan := make(chan error, 0)
 	tcpAddr := new(net.TCPAddr)
 	tcpAddr.IP = net.IPv4(127, 0, 0, 1)
 	tcpAddr.Port = 50000
-	server := NewTcpServer(tcpAddr)
+
+	bizHandler := new(BizHandler)
+	server := NewTcpServer(tcpAddr, bizHandler)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -39,65 +56,4 @@ func main() {
 		log.Println("server.Stop error", err)
 	}
 	log.Println("server exit...")
-}
-
-func NewTcpServer(addr *net.TCPAddr) *TcpServer {
-	ts := new(TcpServer)
-	ts.addr = addr
-	return ts
-}
-
-type TcpServer struct {
-	addr     *net.TCPAddr
-	listener *net.TCPListener
-}
-
-func (ts *TcpServer) Run() error {
-	var err error
-	ts.listener, err = net.ListenTCP("tcp", ts.addr)
-	if err != nil {
-		return err
-	}
-
-	readData := make(chan string, 0)
-	go func() {
-		for {
-			conn, err := ts.listener.Accept()
-			if err != nil {
-				fmt.Printf("accept fail, err: %v\n", err)
-				continue
-			}
-			err, data := ts.read(conn)
-			readData <- data
-		}
-	}()
-
-	go func() {
-		for {
-			conn := <-connChan
-			ts.read(conn)
-		}
-	}()
-	return nil
-}
-
-func (ts *TcpServer) read(conn net.Conn) (error, string) {
-	var readData string
-	defer conn.Close()
-	for {
-		var buf [128]byte
-		n, err := conn.Read(buf[:])
-		if err != nil {
-			return err, readData
-		}
-		readData += string(buf[:n])
-	}
-}
-
-func (ts *TcpServer) Stop() error {
-	var err error
-	if ts.listener != nil {
-		err = ts.listener.Close()
-	}
-	return err
 }
