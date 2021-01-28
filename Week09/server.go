@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"net"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type Handler interface {
@@ -16,10 +20,13 @@ func NewTcpServer(addr *net.TCPAddr, handler Handler) *TcpServer {
 	ts := new(TcpServer)
 	ts.addr = addr
 	ts.handler = handler
+	ts.ctx, ts.cancel = context.WithCancel(context.Background())
 	return ts
 }
 
 type TcpServer struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
 	handler  Handler
 	addr     *net.TCPAddr
 	listener *net.TCPListener
@@ -38,7 +45,7 @@ func (ts *TcpServer) Run() error {
 			log.Printf("accept fail, err: %v\n", err)
 			continue
 		}
-		go func() {
+		go func(conn net.Conn) {
 			var consumerErr error
 			defer func() {
 				if r := recover(); r != nil {
@@ -51,37 +58,61 @@ func (ts *TcpServer) Run() error {
 				}
 			}()
 			consumerErr = ts.consumer(conn)
-		}()
+		}(conn)
 	}
 }
 
 func (ts *TcpServer) consumer(conn net.Conn) error {
 	ts.handler.OnConnect(conn)
 
-	err, data := ts.read(conn)
-	if err != nil {
-		return err
-	}
+	readData := make(chan []byte, 10)
+	rd := bufio.NewReader(conn)
+	ctx := context.Background()
+	g, eCtx := errgroup.WithContext(ts.ctx)
+	g.Go(func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic %v", r)
+			}
+		}()
 
-	ts.handler.OnMessage(conn, data)
-	return nil
-}
-
-func (ts *TcpServer) read(conn net.Conn) (error, []byte) {
-	var readData []byte
-	for {
-		var buf [128]byte
-		n, err := conn.Read(buf[:])
-		if err != nil {
-			return err, readData
+		for {
+			select {
+			case <-eCtx.Done():
+				return nil
+			default:
+			}
+			data, _, rErr := rd.ReadLine()
+			if rErr != nil {
+				err = rErr
+				return
+			}
+			readData <- data
 		}
-		readData = append(readData, buf[:n]...)
-	}
+	})
+	g.Go(func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic %v", r)
+			}
+		}()
+		for {
+			select {
+			case <-eCtx.Done():
+				return nil
+			default:
+			}
+			data := <-readData
+			ts.handler.OnMessage(conn, data)
+		}
+	})
+	return g.Wait()
 }
 
 func (ts *TcpServer) Stop() error {
 	var err error
 	if ts.listener != nil {
+		ts.cancel()
 		err = ts.listener.Close()
 	}
 	return err
