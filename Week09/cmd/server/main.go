@@ -1,6 +1,8 @@
 package main
 
 import (
+	"Go-000/Week09/pkg"
+	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -18,6 +20,21 @@ func (bh *BizHandler) OnConnect(c net.Conn) {
 
 func (bh *BizHandler) OnMessage(c net.Conn, bytes []byte) {
 	log.Printf("OnMessage %+v %s\n", c, string(bytes))
+	writer := bufio.NewWriter(c)
+	_, err := writer.Write([]byte("receive "))
+	if err != nil {
+		log.Printf("writer write error %+v\n", err)
+		return
+	}
+	_, err = writer.Write(bytes)
+	if err != nil {
+		log.Printf("writer write error %+v\n", err)
+		return
+	}
+	err = writer.Flush()
+	if err != nil {
+		log.Printf("writer flush error %+v\n", err)
+	}
 }
 
 func (bh *BizHandler) OnClose(c net.Conn, err error) {
@@ -25,13 +42,15 @@ func (bh *BizHandler) OnClose(c net.Conn, err error) {
 }
 
 func main() {
-	errChan := make(chan error, 0)
-	tcpAddr := new(net.TCPAddr)
-	tcpAddr.IP = net.IPv4(127, 0, 0, 1)
-	tcpAddr.Port = 50000
-
+	serAddr := "127.0.0.1:50000"
+	tcpAddr, err := net.ResolveTCPAddr("tcp", serAddr)
+	if err != nil {
+		panic("ResolveTCPAddr failed:" + err.Error())
+	}
 	bizHandler := new(BizHandler)
-	server := NewTcpServer(tcpAddr, bizHandler)
+	server := pkg.NewTcpServer(tcpAddr, bizHandler)
+
+	errChan := make(chan error, 0)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -51,7 +70,7 @@ func main() {
 	case q := <-quit:
 		log.Printf("catch exit signal %s\n", q.String())
 	}
-	err := server.Stop()
+	err = server.Stop()
 	if err != nil {
 		log.Println("server.Stop error", err)
 	}

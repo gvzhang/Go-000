@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"bufio"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -40,6 +41,12 @@ func (ts *TcpServer) Run() error {
 	}
 
 	for {
+		select {
+		case <-ts.ctx.Done():
+			log.Printf("listen done\n")
+			return nil
+		default:
+		}
 		conn, err := ts.listener.Accept()
 		if err != nil {
 			log.Printf("accept fail, err: %v\n", err)
@@ -67,52 +74,68 @@ func (ts *TcpServer) consumer(conn net.Conn) error {
 
 	readData := make(chan []byte, 10)
 	rd := bufio.NewReader(conn)
-	ctx := context.Background()
 	g, eCtx := errgroup.WithContext(ts.ctx)
-	g.Go(func() (err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("panic %v", r)
+	g.Go(func() error {
+		errChan := make(chan error)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errChan <- fmt.Errorf("panic %v", r)
+				}
+			}()
+			for {
+				data, _, err := rd.ReadLine()
+				if err != nil {
+					errChan <- err
+					return
+				}
+				readData <- data
 			}
 		}()
+		select {
+		case <-eCtx.Done():
+			log.Printf("Read done\n")
+			return nil
+		case err := <-errChan:
+			log.Printf("Read err %+v\n", err)
+			return err
+		}
+	})
 
-		for {
-			select {
-			case <-eCtx.Done():
-				return nil
-			default:
-			}
-			data, _, rErr := rd.ReadLine()
-			if rErr != nil {
-				err = rErr
-				return
-			}
-			readData <- data
-		}
-	})
-	g.Go(func() (err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("panic %v", r)
+	g.Go(func() error {
+		errChan := make(chan error)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errChan <- fmt.Errorf("panic %v", r)
+				}
+			}()
+			for {
+				data := <-readData
+				ts.handler.OnMessage(conn, data)
 			}
 		}()
-		for {
-			select {
-			case <-eCtx.Done():
-				return nil
-			default:
-			}
-			data := <-readData
-			ts.handler.OnMessage(conn, data)
+		select {
+		case <-eCtx.Done():
+			log.Printf("onMessage done\n")
+			return nil
+		case err := <-errChan:
+			log.Printf("onMessage err %+v\n", err)
+			return err
 		}
 	})
-	return g.Wait()
+	err := g.Wait()
+	if err != nil {
+		log.Printf("consumer err %+v\n", err)
+	}
+	return err
 }
 
 func (ts *TcpServer) Stop() error {
 	var err error
 	if ts.listener != nil {
 		ts.cancel()
+		time.Sleep(3 * time.Second)
 		err = ts.listener.Close()
 	}
 	return err
